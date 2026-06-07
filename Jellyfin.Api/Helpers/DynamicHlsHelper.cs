@@ -215,6 +215,14 @@ public class DynamicHlsHelper
         {
             var encodingOptions = _serverConfigurationManager.GetEncodingOptions();
 
+            // [Personal fork] Don't advertise the SDR transcode fallback alongside the HDR remux.
+            // Jellyfin adds an SDR (h264/hevc-main) rendition next to the HDR remux "for backward
+            // compatibility", with the SAME BANDWIDTH, expecting the client to pick by VIDEO-RANGE.
+            // AVPlayer (our tvOS client) frequently picks the SDR transcode on first playback, which
+            // defeats the HDR remux. This fallback is only emitted for HDR-capable clients (the
+            // video is already being copied), so dropping it is safe for them. See jellyfin#17040.
+            var emitSdrHdrFallback = false;
+
             // Provide AV1 and HEVC SDR entrances for backward compatibility.
             foreach (var sdrVideoCodec in new[] { "av1", "hevc" })
             {
@@ -226,7 +234,8 @@ public class DynamicHlsHelper
                     && string.Equals(state.ActualOutputVideoCodec, "hevc", StringComparison.OrdinalIgnoreCase);
                 var isEncodingAllowed = isAv1EncodingAllowed || isHevcEncodingAllowed;
 
-                if (isEncodingAllowed
+                if (emitSdrHdrFallback
+                    && isEncodingAllowed
                     && EncodingHelper.IsCopyCodec(state.OutputVideoCodec)
                     && state.VideoStream.VideoRange == VideoRange.HDR)
                 {
@@ -249,7 +258,8 @@ public class DynamicHlsHelper
             }
 
             // Provide H.264 SDR entrance for backward compatibility.
-            if (EncodingHelper.IsCopyCodec(state.OutputVideoCodec)
+            if (emitSdrHdrFallback
+                && EncodingHelper.IsCopyCodec(state.OutputVideoCodec)
                 && state.VideoStream.VideoRange == VideoRange.HDR)
             {
                 // Force H.264 and disable video stream copy.
