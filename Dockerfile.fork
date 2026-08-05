@@ -1,0 +1,43 @@
+# Jellyfin 10.11.11 amb els pegats del fork.
+#
+# Es compila només el servidor i es diposita sobre la imatge oficial de la
+# mateixa versió, que ja porta el jellyfin-ffmpeg i la interfície web ja
+# construïda. Així la UI queda sincronitzada amb el servidor sense haver de
+# compilar el jellyfin-web (que viu en un altre repositori).
+#
+#   docker build -f Dockerfile.fork -t jellyfin-fork:10.11.11 .
+#
+# El RID per defecte és el del Mac (Apple Silicon). Per a una màquina Intel o un
+# servidor x86:
+#
+#   docker build -f Dockerfile.fork --build-arg RID=linux-x64 -t jellyfin-fork:10.11.11 .
+#
+# La imatge oficial és self-contained: el runtime de .NET viu dins de /jellyfin
+# i l'entrypoint és l'executable /jellyfin/jellyfin. El publish d'aquí ha de
+# ser igual, o l'arrencada peta amb "No frameworks were found".
+
+ARG RID=linux-arm64
+
+FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+ARG RID
+WORKDIR /src
+COPY . .
+
+RUN dotnet publish Jellyfin.Server/Jellyfin.Server.csproj \
+        --configuration Release \
+        --runtime "$RID" \
+        --self-contained true \
+        --output /out \
+        -p:DebugType=none \
+        -p:GenerateDocumentationFile=false
+
+FROM jellyfin/jellyfin:10.11.11
+
+# Substitució completa del servidor, conservant la web oficial: barrejar els
+# binaris nous amb els vells dins del mateix directori deixaria DLLs de dues
+# compilacions convivint.
+RUN mv /jellyfin /jellyfin.orig
+COPY --from=build /out/ /jellyfin/
+RUN cp -a /jellyfin.orig/jellyfin-web /jellyfin/jellyfin-web \
+    && rm -rf /jellyfin.orig \
+    && chmod +x /jellyfin/jellyfin
